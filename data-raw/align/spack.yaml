@@ -1,0 +1,42 @@
+# This is a spack environment file.  Install the specs using:
+#
+#   spack env activate .
+#   spack spec
+#   spack install
+#
+# Some changes may require you to reconcretize:
+#
+#   spack concretize -f
+#   spack install
+
+# yamllint disable rule:indentation
+spack:
+  specs:
+  - flux-core@0.89+docs
+  - py-jinja2-cli@0.8.2
+  - ninja@1.13.0
+  - trimgalore@0.6.10
+  - hisat2@2.2.1
+  - samtools@1.21
+  - subread@2.0.6
+  view: false
+  concretizer:
+    unify: true
+  repos:
+    builtin:
+      # branch: releases/v2026.06
+      branch: develop
+      destination: /home/pan79/src/spack-packages
+  packages:
+    gcc:
+      externals:
+      - spec: gcc@13.3.0 languages:='c,c++,fortran'
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/gcc
+            cxx: /usr/bin/g++
+            fortran: /usr/bin/gfortran
+  develop:
+    flux-core:
+      spec: flux-core@=0.89.0

@@ -1,0 +1,18 @@
+{
+    "subpath_data": "transcriptomics-data/2026-2patient-e2-ca09",
+    "samples_zip": "GBHVKN_fastq.zip",
+    "samples": [
+	"GBHVKN_1_UF_1",
+	"GBHVKN_2_UF_2",
+	"GBHVKN_3_Estradiol_1",
+	"GBHVKN_4_Estradiol_2",
+	"GBHVKN_5_Flu_1",
+	"GBHVKN_6_Flu_2",
+	"GBHVKN_7_Flu_Estradiol_1",
+	"GBHVKN_8_Flu_Estradiol_2"
+    ],
+    "annotations": {
+	"refseqhg38p14": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_feature_table.txt.gz",
+	"ens115": "https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz"
+    }
+}

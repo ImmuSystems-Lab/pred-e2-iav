@@ -1,0 +1,174 @@
+# -*- mode: ninja; -*-
+path_data = {{ prefix_data }}/data
+path_trimmed = ${path_data}/trimmed
+path_hisat2_indices = ${path_data}/hisat2-indices
+path_hisat2_grch38 = ${path_hisat2_indices}/grch38_snp_tran
+path_samples = ${path_data}/{{ subpath_data }}
+path_logs = ${path_data}/logs
+path_align = ${path_data}/sam-align
+path_unalign = ${path_data}/sam-unalign
+path_unsorted = ${path_data}/bam-unsorted
+path_sorted = ${path_data}/bam
+path_anno = ${path_data}/anno
+path_counts = ${path_data}/counts
+
+rule download
+  command = wget -O $out $url
+
+rule untar
+  command = tar --touch -C $dir -xf $in
+
+rule unzip
+  command = unzip -d $path_samples $zip $zipped
+
+rule trim
+  command = trim_galore $
+  --fastqc_args "--memory {{ mem_thread_mb }}" $
+  --output_dir $dir $
+  $in
+
+rule align
+  pool = console
+  command = hisat2 $
+  --threads {{ nproc }} $
+  --time $
+  --new-summary $
+  --summary-file $summary $
+  -S $sam_align $
+  --un $sam_unalign $
+  -x ${path_hisat2_grch38}/genome_snp_tran $
+  -q $
+  -U $in
+
+rule bam-unsorted
+  command = samtools view $in -Sb > $out
+
+rule bam-sorted
+  command = samtools sort $in -o $out -m {{ mem_thread_mb }}M
+
+rule bam-index
+  command = samtools index $in
+
+rule gunzip
+  command = gunzip --keep --force $in
+
+rule ncbi-table-to-saf
+  command = awk $
+  -vFS='\t' $
+  -vOFS='\t' $
+  '$$1 == "gene" && $$6 != "" {if ($$6 == "MT") {$$6 = "M"}; print $$16,"chr"$$6,$$8,$$9,$$10} BEGIN {print "GeneID","Chr","Start","End","Strand"}' $
+  < $in $
+  > $out
+
+rule feature-counts
+  pool = console
+  command = featureCounts $
+  -o $out $
+  -a $anno $
+  -F $format $
+  -M $
+  -d 35 $
+  -T {{ nproc }} $
+  $bams
+
+build $
+  ${path_hisat2_indices}/grch38_snptran.tar.gz $
+  : download
+  url = https://genome-idx.s3.amazonaws.com/hisat/grch38_snptran.tar.gz
+
+build $
+  {%- for i in range(1, 9) %}
+  ${path_hisat2_grch38}/genome_snp_tran.{{ i }}.ht2 $
+  {%- endfor %}
+  ${path_hisat2_grch38}/make_grch38_snp_tran.sh $
+  : untar $
+  ${path_hisat2_indices}/grch38_snptran.tar.gz
+  dir = $path_hisat2_indices
+
+{%- for sample in samples %}
+
+build $
+  ${path_samples}/{{ sample }}.fastq.gz $
+  : unzip
+  zip = ${path_samples}/{{ samples_zip }}
+  zipped = {{ sample }}.fastq.gz
+
+build $
+  ${path_trimmed}/{{ sample }}.fastq.gz_trimming_report.txt $
+  ${path_trimmed}/{{ sample }}_trimmed.fq.gz $
+  ${path_trimmed}/{{ sample }}_trimmed_fastqc.html $
+  ${path_trimmed}/{{ sample }}_trimmed_fastqc.zip $
+  : trim $
+  ${path_samples}/{{ sample }}.fastq.gz
+  dir = $path_trimmed
+
+build $
+  ${path_align}/{{ sample }}.sam $
+  ${path_unalign}/{{ sample }}.sam $
+  ${path_logs}/hisat2-align-summary-{{ sample }}.txt $
+  : align $
+  ${path_trimmed}/{{ sample }}_trimmed.fq.gz
+  sam_align = ${path_align}/{{ sample }}.sam
+  sam_unalign = ${path_unalign}/{{ sample }}.sam
+  summary = ${path_logs}/hisat2-align-summary-{{ sample }}.txt
+
+build $
+  ${path_unsorted}/{{ sample }}.bam $
+  : bam-unsorted $
+  ${path_align}/{{ sample }}.sam
+
+build $
+  ${path_sorted}/{{ sample }}.bam $
+  : bam-sorted $
+  ${path_unsorted}/{{ sample }}.bam
+
+build $
+  ${path_sorted}/{{ sample }}.bam.bai $
+  : bam-index $
+  ${path_sorted}/{{ sample }}.bam
+{%- endfor %}
+
+{%- for name, url in annotations.items() -%}
+{%-   set basename = url.split("/")[-1] %}
+
+build $
+  ${path_anno}/{{ basename }} $
+  : download
+  url = {{ url }}
+
+{% set format = "GTF" -%}
+{%-   if basename.endswith("feature_table.txt.gz") -%}
+{%-     set basename_txt_gz = basename -%}
+{%-     set basename_txt = basename.replace(".txt.gz", ".txt") -%}
+{%-     set basename = basename.replace(".txt.gz", ".saf") -%}
+{%-     set format = "SAF" -%}
+build $
+  ${path_anno}/{{ basename_txt }} $
+  : gunzip $
+  ${path_anno}/{{ basename_txt_gz }}
+
+build $
+  ${path_anno}/{{ basename }} $
+  : ncbi-table-to-saf $
+  ${path_anno}/{{ basename_txt }}
+
+{%   endif -%}
+
+build $
+  ${path_counts}/{{ name }}.featureCounts $
+  : feature-counts $
+  {% for sample in samples -%}
+  ${path_sorted}/{{ sample }}.bam $
+  {% endfor -%}
+  ${path_anno}/{{ basename }}
+  bams = $
+  {%- for sample in samples -%}
+  {%-   if not loop.last %}
+  ${path_sorted}/{{ sample }}.bam $
+  {%-   else %}
+  ${path_sorted}/{{ sample }}.bam
+  {%-   endif -%}
+  {%- endfor %}
+  anno = ${path_anno}/{{ basename }}
+  format = {{ format }}
+{%- endfor %}
