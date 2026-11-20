@@ -35,6 +35,7 @@ xfun::file_string("README.md")
 library(readr)
 library(dplyr)
 library(stringr)
+library(flextable)
 ## Bioconductor:
 library(txdbmaker)
 library(GenomeInfoDb)
@@ -94,6 +95,7 @@ df_counts_entrez
 ```{r dge-entrez}
 #| cache: true
 #| dependson: -1
+#| results: asis
 
 y <-
   DGEList(
@@ -109,7 +111,7 @@ y <- normLibSizes(y)
 
 fit <- glmQLFit(y)
 
-fit$design
+flextable(as.data.frame(fit$design))
 
 cols <- colnames(fit$design)
 empty_list <- function() {
@@ -119,17 +121,31 @@ empty_list <- function() {
 qlf <- empty_list()
 go <- empty_list()
 kegg <- empty_list()
+print_table <- function(df) {
+  df |>
+    (function(df) tibble::rownames_to_column(df, "ID"))() |>
+    mutate(
+      across(
+        starts_with(fixed("P.")),
+        ~ formatC(.x, format = "e", digits = 3))) |>
+    flextable() |>
+    knitr::knit_print() |>
+    cat()
+}
 for (coef in seq_along(cols)) {
-  message("Analysis of ", cols[coef], ":")
   qlf[[coef]] <- glmQLFTest(fit, coef = coef)
 
   go[[coef]] <- goana(qlf[[coef]])
-  print(topGO(go[[coef]], sort = "up"))
-  print(topGO(go[[coef]], sort = "down"))
+  message("GO up ", cols[coef], ":")
+  print_table(topGO(go[[coef]], sort = "up"))
+  message("GO down ", cols[coef], ":")
+  print_table(topGO(go[[coef]], sort = "down"))
 
   kegg[[coef]] <- kegga(qlf[[coef]])
-  print(topKEGG(kegg[[coef]], sort = "up"))
-  print(topKEGG(kegg[[coef]], sort = "down"))
+  message("KEGG up ", cols[coef], ":")
+  print_table(topKEGG(kegg[[coef]], sort = "up"))
+  message("KEGG up ", cols[coef], ":")
+  print_table(topKEGG(kegg[[coef]], sort = "down"))
 }
 ```
 
