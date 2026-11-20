@@ -1,0 +1,255 @@
+---
+title: >-
+  Predictive Modeling of Estradiol Effects and Sex Differences on
+  Immunopathology during Influenza Infection
+  (`r system2(
+  "git", c("describe", "--tags", "--dirty=-*"), stdout = TRUE
+  )`)
+author: >-
+  Pariksheet Nanda
+date: >-
+  `r system2(
+  "git",
+  c("log", "-1", "--format=%ad", "--date=format:%Y-%m-%d"),
+  stdout = TRUE
+  )`
+params:
+  dir_data: "~/data"
+---
+
+```{r readme}
+#| echo: false
+#| results: asis
+
+xfun::file_string("README.md")
+```
+
+# Preamble
+
+## Load libraries
+
+```{r libraries}
+#| message: false
+
+## Tidyverse, etc.:
+library(readr)
+library(dplyr)
+library(stringr)
+## Bioconductor:
+library(txdbmaker)
+library(GenomeInfoDb)
+library(rtracklayer)
+library(edgeR)
+## Set RMarkdown params when run interactively:
+if (! exists("params", mode = "list")) {
+  params <- list(dir_data = "~/data")
+}
+```
+
+## Define functions
+
+```{r func-read-counts}
+#| cache: true
+
+read_counts <- function(file_gene_counts) {
+  read_tsv(
+    file_gene_counts,
+    ## Ignore the command execution metadata.
+    skip = 1L,
+    col_types = cols(
+      Geneid = "c",
+      Chr = "c",
+      ## The Start, End, and Strand columns can contain contatenations like
+      ## value1;value2, so even if Start and End contain integer data, read in
+      ## as characters for this concatenation edge case.
+      Start = "c",
+      End = "c",
+      Strand = "c",
+      .default = "i"
+    )) |>
+  rename_with(
+    ~ basename(.x) |>
+      str_remove(fixed(".bam")),
+    where(is.integer) & ends_with(".bam"))
+}
+```
+
+# DGE-GO-KEGG Analysis
+
+## Entrez annotations
+
+```{r load-counts-entrez}
+#| cache: true
+#| dependson: -1
+
+## Subread featureCounts.
+file_gene_counts_entrez <-
+  file.path(params$dir_data, "counts", "refseqhg38p14.featureCounts")
+
+## Import the gene expression counts.
+df_counts_entrez <- read_counts(file_gene_counts_entrez)
+df_counts_entrez
+```
+
+```{r dge-entrez}
+#| cache: true
+#| dependson: -1
+
+y <-
+  DGEList(
+    counts =
+      df_counts_entrez |>
+      dplyr::select("Geneid", last_col(7):last_col()) |>
+      tibble::column_to_rownames("Geneid"),
+    group = gl(4, 2, labels = c("ctrl", "e2", "iav", "e2iav"))
+  )
+keep <- filterByExpr(y)
+y <- y[keep, , keep.lib.sizes = FALSE]
+y <- normLibSizes(y)
+
+fit <- glmQLFit(y)
+
+fit$design
+
+cols <- colnames(fit$design)
+empty_list <- function() {
+  vector("list", ncol(fit$design)) |>
+    setNames(cols)
+}
+qlf <- empty_list()
+go <- empty_list()
+kegg <- empty_list()
+for (coef in seq_along(cols)) {
+  message("Analysis of ", cols[coef], ":")
+  qlf[[coef]] <- glmQLFTest(fit, coef = coef)
+
+  go[[coef]] <- goana(qlf[[coef]])
+  print(topGO(go[[coef]], sort = "up"))
+  print(topGO(go[[coef]], sort = "down"))
+
+  kegg[[coef]] <- kegga(qlf[[coef]])
+  print(topKEGG(kegg[[coef]], sort = "up"))
+  print(topKEGG(kegg[[coef]], sort = "down"))
+}
+```
+
+## Ensembl annotations
+
+```{r load-counts-ensembl}
+#| cache: true
+#| dependson: func-read-counts
+
+## Subread featureCounts.
+file_gene_counts_ensembl <-
+  file.path(params$dir_data, "counts", "ens115.featureCounts")
+
+df_counts_ensembl <- read_counts(file_gene_counts_ensembl)
+df_counts_ensembl
+```
+
+```{r dge-ensembl}
+#| cache: true
+#| dependson: -1
+
+y <-
+  DGEList(
+    counts =
+      df_counts_ensembl |>
+      dplyr::select("Geneid", last_col(7):last_col()) |>
+      tibble::column_to_rownames("Geneid"),
+    group = gl(4, 2, labels = c("ctrl", "e2", "iav", "e2iav"))
+  )
+keep <- filterByExpr(y)
+y <- y[keep, , keep.lib.sizes = FALSE]
+y <- normLibSizes(y)
+
+fit <- glmQLFit(y)
+
+fit$design
+
+## According to goana, no DE genes for e2 treated only (coef = 2L)!
+qlf <- glmQLFTest(fit, coef = 3L)
+
+try({
+  go <- goana(qlf)
+})
+
+## Per https://support.bioconductor.org/p/103096/ "KEGG supports either FlyBase
+## CG Ids or Entrez Gene Ids (see below), so you have to supply one or the
+## other."
+g <- getGeneKEGGLinks("hsa")
+head(g)  # Look like Entrez IDs to me.
+```
+
+```{r load-anno-ensembl-raw-from-file}
+#| cache: true
+
+## Ensembl 115.
+file_gene_anno <-
+  file.path(params$dir_data, "anno", "Homo_sapiens.GRCh38.115.gtf.gz")
+
+## Import gene model.
+system.time({
+  txdb_file <- makeTxDbFromGFF(
+    file_gene_anno,
+    metadata = data.frame(
+      name = "Resource URL",
+      value =
+        fs::path(
+          "https://ftp.ensembl.org",
+          "pub",
+          "release-115",
+          "gtf",
+          "homo_sapiens",
+          "Homo_sapiens.GRCh38.115.gtf.gz")),
+    organism = "Homo sapiens",
+    taxonomyId = 9606L
+  ) |>
+    keepStandardChromosomes()
+})
+```
+
+```{r modify-anno-ensembl-raw-from-file}
+#| cache: true
+#| dependson: -1
+
+seqinfo <-
+  Seqinfo(genome = "hg38") |>
+  keepStandardChromosomes()
+
+## We can never fix the seqinfo information because it keeps trying to force old
+## invalid NA values:
+try({
+  seqinfo(txdb_file) <-
+    Seqinfo(
+      seqnames = seqnames(seqinfo(txdb_file)),
+      seqlengths = setNames(seqlengths(seqinfo), seqnames(seqinfo(txdb_file))),
+      isCircular = isCircular(seqinfo(txdb_file)))
+})
+try({
+  seqlengths(txdb_file) <-
+    setNames(seqlengths(seqinfo), seqnames(seqinfo(txdb_file)))
+})
+isCircular(seqinfo) <- (function() {
+  x <- vector(length = 25)
+  x[] <- NA
+  x[length(x)] <- TRUE
+  x
+})()
+try({
+  seqinfo(txdb_file, new2old = seq_along(seqinfo)) <- seqinfo
+})
+```
+
+```{r load-anno-ensembl-from-web-sql}
+#| cache: true
+
+## Per above, there's no easy way to set the seqinfo for the gtf file so use
+## MariaDB and download from the online resource.
+system.time({
+  txdb_all <- makeTxDbFromEnsembl(release = 115)
+})
+txdb <-
+  txdb_all |>
+  keepStandardChromosomes()
+```

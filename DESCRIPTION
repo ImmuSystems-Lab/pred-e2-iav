@@ -1,0 +1,23 @@
+Package: prede2iav
+Title: Does Not Matter
+Version: 0.0.0.9000
+Authors@R: 
+    person("Pariksheet", "Nanda", , "pan79@pitt.edu", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-9726-4552"))
+Description: Does not matter.
+License: Apache License (>= 2)
+Config/roxygen2/version: 8.1.1
+Encoding: UTF-8
+Language: en
+Roxygen: list(markdown = TRUE)
+Depends: 
+    R (>= 4.6.0)
+Suggests: 
+    dplyr,
+    edgeR,
+    GenomeInfoDb,
+    GenomeInfoDbData,
+    readr,
+    RMariaDB,
+    stringr,
+    txdbmaker

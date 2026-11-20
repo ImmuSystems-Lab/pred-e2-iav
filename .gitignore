@@ -1,3 +1,5 @@
+/_book/
+/_main_cache/
 /data-raw/align/.ninja_log
 /data-raw/align/.spack-env/
 /data-raw/align/build.ninja
